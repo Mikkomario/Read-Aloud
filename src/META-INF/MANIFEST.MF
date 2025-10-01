@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+Main-Class: vf.readaloud.app.console.ReadAloudConsole
+Class-Path: lib/commons-codec-1.15.jar lib/httpclient5-5.1.2.jar lib/htt
+ pcore5-5.1.2.jar lib/httpcore5-h2-5.1.2.jar lib/slf4j-api-1.7.25.jar li
+ b/commons-logging-1.2.jar lib/fontbox-2.0.25.jar lib/pdfbox-2.0.25.jar 
+ lib/scala-library-2.13.14.jar lib/scala-reflect-2.13.14.jar
+
