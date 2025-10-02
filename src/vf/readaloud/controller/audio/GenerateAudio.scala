@@ -80,7 +80,7 @@ object GenerateAudio
 								SpokenPdfSection(header.headOption, paragraphs)
 							}
 					}
-					.toTryCatch.map { SpokenPdfPage(_, page.pageHeader) }
+					.toTryCatch.map { SpokenPdfPage(_, page.pageHeader, page.footer) }
 			}
 			.toTryCatch
 	}

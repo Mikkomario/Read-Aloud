@@ -7,7 +7,7 @@ import utopia.flow.util.StringExtensions._
  * @author Mikko Hilpinen
  * @since 29.09.2025, v0.1
  */
-case class PdfPage(sections: Seq[PdfSection], pageHeader: String)
+case class PdfPage(sections: Seq[PdfSection], pageHeader: String, footer: String)
 {
 	override def toString = s"${ pageHeader.mapIfNotEmpty{ h => s"[$h]\n\n" } }${ sections.mkString("\n\n") }"
 }

@@ -120,12 +120,12 @@ object ReadPdf
 				val bodyEntries = textEntries.drop(pageHeaderEntries.size)
 				val headerIndices = bodyEntries.iterator.zipWithIndex
 					.filter { case (entry, _) => entry.font != standardFont }.map { _._2 }.toIntSet
-				val sections = {
+				val (sections, footer) = {
 					val yDiffThreshold = standardLineHeight * 1.25
 					val xThreshold = standardStartX + insignificantXDiff
 					
 					if (headerIndices.isEmpty)
-						Single(sectionFrom("", bodyEntries, yDiffThreshold, xThreshold))
+						Single(sectionFrom("", bodyEntries, yDiffThreshold, xThreshold)) -> ""
 					else {
 						val sectionsBuilder = OptimizedIndexedSeq.newBuilder[PdfSection]
 						// Adds the first section
@@ -140,15 +140,26 @@ object ReadPdf
 							sectionsBuilder += sectionFrom(header, body, yDiffThreshold, xThreshold)
 						}
 						// Adds the last section
-						val lastHeader = entriesToText(bodyEntries.slice(headerIndices.ranges.last))
-						sectionsBuilder += sectionFrom(lastHeader, bodyEntries.drop(headerIndices.last + 1),
-							yDiffThreshold, xThreshold)
+						// However, if the last section only consists of a header (i.e. different font),
+						// and has a different X-positioning throughout, it will be considered a footer instead
+						val lastHeaderEntries = bodyEntries.slice(headerIndices.ranges.last)
+						val lastHeaderText = entriesToText(lastHeaderEntries)
+						val footer = {
+							if (headerIndices.last == bodyEntries.size - 1 &&
+								lastHeaderEntries.forall { e => (e.x - standardStartX).abs > insignificantXDiff })
+								lastHeaderText
+							else {
+								sectionsBuilder += sectionFrom(lastHeaderText, bodyEntries.drop(headerIndices.last + 1),
+									yDiffThreshold, xThreshold)
+								""
+							}
+						}
 						
-						sectionsBuilder.result()
+						sectionsBuilder.result() -> footer
 					}
 				}
 				
-				pagesBuilder += PdfPage(sections, entriesToText(pageHeaderEntries))
+				pagesBuilder += PdfPage(sections, entriesToText(pageHeaderEntries), footer)
 			}
 		}
 		

@@ -17,7 +17,7 @@ object SpokenPdfPage extends FromModelFactory[SpokenPdfPage]
 				.logToTryWithMessage("Failed to parse some of the sections")
 		}
 		.filter { _.nonEmpty }
-		.map { sections => apply(sections, model("pageHeader").getString) }
+		.map { sections => apply(sections, model("pageHeader").getString, model("footer").getString) }
 }
 
 /**
@@ -26,7 +26,7 @@ object SpokenPdfPage extends FromModelFactory[SpokenPdfPage]
  * @since 29.09.2025, v0.1
  */
 // WET WET from PdfPage
-case class SpokenPdfPage(sections: Seq[SpokenPdfSection], pageHeader: String) extends ModelConvertible
+case class SpokenPdfPage(sections: Seq[SpokenPdfSection], pageHeader: String, footer: String) extends ModelConvertible
 {
-	override def toModel: Model = Model.from("sections" -> sections, "pageHeader" -> pageHeader)
+	override def toModel: Model = Model.from("sections" -> sections, "pageHeader" -> pageHeader, "footer" -> footer)
 }
