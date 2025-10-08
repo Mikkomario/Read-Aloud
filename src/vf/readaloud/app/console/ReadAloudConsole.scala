@@ -208,6 +208,33 @@ object ReadAloudConsole extends App
 			narrator.stop().foreach { _ => println("Narration stopped") }
 		}
 	}
+	private val skipCommand = Command.withoutArguments("skip", help = "Skips straight to the next page") {
+		narratorP.value.foreach { narrator =>
+			narrator.goToNextPage() match {
+				case Some(pageIndex) => println(s"Continues on page ${ pageIndex + 1 }")
+				case None => println("Already at the last page")
+			}
+		}
+	}
+	private val goToPageCommand = Command("page", help = "Moves the narration to a specific page")(
+		ArgumentSchema("page", help = "Number of the page to go to")) {
+		args =>
+			args("page").int match {
+				case Some(pageIndex) =>
+					narratorP.value.foreach { narrator =>
+						narrator.moveTo(DocumentPosition(pageIndex - 1)) match {
+							case Success(immediate) =>
+								if (immediate)
+									println(s"Now on page $pageIndex")
+								else
+									println(s"Goes to page $pageIndex after the current paragraph")
+								
+							case Failure(_) => println(s"$pageIndex is not a valid page index")
+						}
+					}
+				case None => println("Try again with page index as the first parameter")
+			}
+	}
 	
 	private val hasNarratorFlag: Flag = narratorP.nonEmptyFlag
 	private val pausedFlag: Flag = narratorP.flatMap {
@@ -218,7 +245,7 @@ object ReadAloudConsole extends App
 	private val commandsP = hasNarratorFlag.mergeWith(pausedFlag) { (narrating, paused) =>
 		if (narrating) {
 			val pauseOrContinue = if (paused) continueCommand else pauseCommand
-			Vector(pauseOrContinue, stopCommand, prepareCommand)
+			Vector(pauseOrContinue, stopCommand, skipCommand, goToPageCommand, prepareCommand)
 		}
 		else
 			Pair(prepareCommand, listenCommand)

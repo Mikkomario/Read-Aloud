@@ -230,6 +230,13 @@ class DocumentNarrator(pages: Seq[SpokenPdfPage],
 					}
 			}
 	}
+	/**
+	 * Moves this narrator to the start of the next page
+	 * @return The index of the selected page. None if this narrator was already on the last page.
+	 */
+	def goToNextPage() =
+		Some(pageIndex + 1).filter { pages.hasSize > _ }
+			.filter { nextIndex => moveTo(DocumentPosition(nextIndex)).isSuccess }
 	
 	/**
 	 * Advances the current text pointers to point to the next piece of text.

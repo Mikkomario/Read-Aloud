@@ -29,7 +29,8 @@ object DocumentPosition extends FromModelFactoryWithSchema[DocumentPosition]
  * @author Mikko Hilpinen
  * @since 01.10.2025, v0.1
  */
-case class DocumentPosition(pageIndex: Int, sectionIndex: Int, paragraphIndex: Option[Int]) extends ModelConvertible
+case class DocumentPosition(pageIndex: Int, sectionIndex: Int = 0, paragraphIndex: Option[Int] = None)
+	extends ModelConvertible
 {
 	override def toModel: Model =
 		Model.from("page" -> pageIndex, "section" -> sectionIndex, "paragraph" -> paragraphIndex)
