@@ -5,7 +5,7 @@ import utopia.flow.async.AsyncExtensions._
 import utopia.flow.async.context.CloseHook
 import utopia.flow.async.process.Delay
 import utopia.flow.collection.CollectionExtensions._
-import utopia.flow.collection.immutable.Pair
+import utopia.flow.collection.immutable.{Pair, Single}
 import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.parse.file.FileUtils
 import utopia.flow.time.TimeExtensions._
@@ -15,16 +15,20 @@ import utopia.flow.util.TryExtensions._
 import utopia.flow.util.console.ConsoleExtensions._
 import utopia.flow.util.console.{ArgumentSchema, Command, Console}
 import utopia.flow.view.immutable.eventful.AlwaysFalse
-import utopia.flow.view.mutable.Pointer
+import utopia.flow.view.mutable.{Pointer, Settable}
+import utopia.flow.view.mutable.eventful.SettableFlag
+import utopia.flow.view.template.MaybeSet
 import utopia.flow.view.template.eventful.Flag
 import vf.readaloud.controller.audio.{AudioContext, DocumentNarrator, GenerateAudio}
 import vf.readaloud.controller.data.AudioDocuments
 import vf.readaloud.model.document.AudioDocument
+import vf.readaloud.model.document.AudioDocument.NewAudioDocument
 import vf.readaloud.model.document.pdf.DocumentPosition
 import vf.readaloud.model.session.SessionEndState
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path
+import scala.concurrent.Future
 import scala.io.StdIn
 import scala.util.{Failure, Success}
 
@@ -42,6 +46,7 @@ object ReadAloudConsole extends App
 	
 	private val inputDirectory: Path = "input"
 	
+	private val stopConversionFlagP = Pointer.eventful.empty[Settable]
 	private val lastDocumentP = Pointer.empty[AudioDocument]
 	private val openDocumentP = Pointer.empty[AudioDocument]
 	private val narratorP = Pointer.eventful.empty[DocumentNarrator]
@@ -77,31 +82,32 @@ object ReadAloudConsole extends App
 								val fileName = targetFile.fileName
 								val defaultDocName = FileUtils.normalizeFileName(fileName.toLowerCase).untilLast(".")
 								val docName = StdIn.readNonEmptyLine(
-										s"What do you want to name this document? \nHint: Try not to include special characters\nDefault = $defaultDocName")
+										s"What do you want to name this document?\nDefault = $defaultDocName")
 									.getOrElse(defaultDocName)
 								
-								GenerateAudio.forDocument(AudioDocument.newDocument(docName, targetFile)) match {
-									case TryCatch.Success(document: AudioDocument, failures) =>
-										// Logs partial failures
-										if (failures.nonEmpty) {
-											println(s"Encountered ${failures.size} failures during content processing. The document may be incomplete.")
-											log(failures.head,
-												s"This and ${ failures.size - 1 } other failures during content processing")
-										}
-										AudioDocuments += document
-										
-										// Queues the pages for faster listening
-										lastDocumentP.setOne(document)
-										println("The document is now ready to be listened. Use the \"listen\" command to listen it.")
-										
-									case TryCatch.Failure(error) =>
-										log(error, "Couldn't generate audio for the document")
-								}
+								generate(AudioDocument.newDocument(docName, targetFile))
 							}
 					
 				case Failure(error) => log(error, "Failed to scan for files")
 			}
 	}
+	private val continueConversionCommand = Command.withoutArguments("continue",
+		help = "Continues converting a PDF to audio") {
+		val incompleteDocs = AudioDocuments.value.filter { _.isIncomplete }
+		if (incompleteDocs.isEmpty)
+			println("All documents have already been converted to audio. \nIf you want to convert a new document, use the \"prepare\" command instead.")
+		else
+			StdIn.selectFrom(incompleteDocs.sortBy { _.name }.map { d => d -> d.name }, "documents", "convert")
+				.foreach(continueGeneration)
+	}
+	private val pauseConversionCommand = Command.withoutArguments("pause",
+		help = "Pauses the currently active audio conversion process") {
+		stopConversionFlagP.pop().foreach { stopFlag =>
+			stopFlag.set()
+			println("The audio conversion will terminate once the current page has been finished")
+		}
+	}
+	
 	private val listenCommand = Command("listen", "play", help = "Listens through a previously processed document")(
 		ArgumentSchema("document", help = "Name of the document to listen to (optional)")) {
 		args =>
@@ -127,6 +133,7 @@ object ReadAloudConsole extends App
 			}
 			docToListen.foreach { startListening(_) }
 	}
+	
 	private val pauseCommand = Command.withoutArguments("pause", "p", help = "Pauses the narration") {
 		if (narratorP.value.exists { _.pause() })
 			println("The narration will pause at the end of this paragraph")
@@ -148,6 +155,7 @@ object ReadAloudConsole extends App
 			narrator.stop().foreach { _ => println("Narration stopped") }
 		}
 	}
+	
 	private val skipCommand = Command.withoutArguments("skip", help = "Skips straight to the next page") {
 		narratorP.value.foreach { narrator =>
 			narrator.goToNextPage() match {
@@ -181,14 +189,22 @@ object ReadAloudConsole extends App
 		case Some(narrator) => narrator.pauseFlag
 		case None => AlwaysFalse
 	}
+	private val convertingFlag = stopConversionFlagP.nonEmptyFlag
 	
-	private val commandsP = hasNarratorFlag.mergeWith(pausedFlag) { (narrating, paused) =>
+	private val commandsP = hasNarratorFlag.mergeWith(pausedFlag, convertingFlag) { (narrating, paused, converting) =>
 		if (narrating) {
 			val pauseOrContinue = if (paused) continueCommand else pauseCommand
 			Vector(pauseOrContinue, stopCommand, skipCommand, goToPageCommand, prepareCommand)
 		}
-		else
-			Pair(prepareCommand, listenCommand)
+		else {
+			val prepareOrPause = {
+				if (converting)
+					Single(pauseConversionCommand)
+				else
+					Pair(prepareCommand, continueConversionCommand)
+			}
+			listenCommand +: prepareOrPause
+		}
 	}
 	private val console = Console(commandsP,
 		s"Please specify the next command: ${ commandsP.value.iterator.map { _.name }.mkString(" | ") } | help | exit",
@@ -236,6 +252,45 @@ object ReadAloudConsole extends App
 				}))
 			}
 			.logWithMessage("Failed to save the current document state")
+	}
+	
+	private def generate(newDocument: NewAudioDocument) = _generate { stopFlag =>
+		println(s"Generating audio for ${ newDocument.name } in the background...")
+		GenerateAudio.forDocument(newDocument, stopFlag)
+	}
+	private def continueGeneration(document: AudioDocument) = _generate { stopFlag =>
+		println(s"Continuing to generate audio for ${ document.name } in the background...")
+		GenerateAudio.continueDocument(document, stopFlag)
+	}
+	private def _generate(f: MaybeSet => TryCatch[AudioDocument]) = {
+		// Prepares a stop flag, so that the conversion may be interrupted
+		val stopFlag = Settable()
+		stopConversionFlagP.setOne(stopFlag)
+		
+		// Performs the audio conversion in a separate thread, in the background
+		Future {
+			f(stopFlag) match {
+				case TryCatch.Success(document: AudioDocument, failures) =>
+					// Logs partial failures
+					if (failures.nonEmpty) {
+						println(s"Encountered ${
+							failures.size} failures during content processing. The document may be incomplete.")
+						log(failures.head,
+							s"This and ${ failures.size - 1 } other failures during content processing")
+					}
+					// Saves the updated document
+					AudioDocuments += document
+					// Queues the document for faster listening
+					lastDocumentP.setOne(document)
+					println("The document is now ready to be listened. Use the \"listen\" command to listen it.")
+				
+				case TryCatch.Failure(error) => log(error, "Couldn't generate audio for the document")
+			}
+		}.onComplete { result =>
+			// Removes the stop flag once the process completes
+			stopConversionFlagP.update { _.filterNot { _ == stopFlag } }
+			result.logWithMessage("Unexpected failure during audio conversion")
+		}
 	}
 	
 	private def startListening(document: AudioDocument, at: Option[DocumentPosition] = None) = {

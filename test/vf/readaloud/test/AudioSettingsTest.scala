@@ -30,7 +30,8 @@ object AudioSettingsTest extends App
 		.foreach { case (params, name) =>
 			implicit val p: TtsParams = params
 			println(s"Generating the $name version...")
-			val spoken = GenerateAudio.to(Single(page), "data/test-data/output/audio", name).get
+			val (spoken, _, _) = GenerateAudio.to(Single(page), "data/test-data/output/audio", fileNamePrefix = name)
+				.get
 			println(s"Playing the $name version...")
 			val narrator = new DocumentNarrator(spoken)
 			narrator.start()

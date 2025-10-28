@@ -9,6 +9,7 @@ import utopia.flow.generic.model.template.ModelConvertible
 import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.parse.file.FileUtils
 import utopia.flow.time.Now
+import utopia.flow.util.TryCatch
 import utopia.flow.util.TryExtensions._
 import vf.readaloud.model.document.pdf.SpokenPdfPage
 import vf.readaloud.util.Common._
@@ -44,6 +45,17 @@ object AudioDocument extends FromModelFactoryWithSchema[AudioDocument]
 	 */
 	def newDocument(name: String, pdf: Path) = NewAudioDocument(name, pdf)
 	
+	private def writeStructureFiles(directory: Path, pages: Seq[SpokenPdfPage], firstPageIndex: Int = 1) = {
+		// Writes the structure JSON documents
+		(directory/"structure").createDirectories().flatMap { pagesDir =>
+			pages.iterator.zipWithIndex
+				.map { case (page, index) =>
+					(pagesDir/s"page-${ firstPageIndex + index }.json").write(page.toContextualModel.toJson)
+				}
+				.toTry
+		}
+	}
+	
 	
 	// NESTED   --------------------------
 	
@@ -66,10 +78,11 @@ object AudioDocument extends FromModelFactoryWithSchema[AudioDocument]
 		/**
 		 * Converts this prepared document into an actual audio document
 		 * @param pages Pages to include in this document
-		 * @param paused Whether audio-generation was paused (default = false)
+		 * @param pausedAfter 0-based index of the last PDF page that was converted to audio.
+		 *                    None if all pages were converted.
 		 * @return Generated audio document. Failure if file-interaction failed at some level.
 		 */
-		def initialize(pages: Seq[SpokenPdfPage], paused: Boolean = false) = {
+		def initialize(pages: Seq[SpokenPdfPage], pausedAfter: Option[Int] = None) = {
 			directory.createDirectories().flatMap { directory =>
 				// Copies the PDF
 				pdf.copyTo(directory).flatMap { pdfPath =>
@@ -83,16 +96,9 @@ object AudioDocument extends FromModelFactoryWithSchema[AudioDocument]
 					}
 					relativeAudioDirectory.flatMap { relativeAudioDirectory =>
 						// Writes the structure JSON documents
-						(directory/"structure").createDirectories().flatMap { pagesDir =>
-							pages.iterator.zipWithIndex
-								.map { case (page, index) =>
-									(pagesDir/s"page-${ index + 1 }.json").write(page.toContextualModel.toJson)
-								}
-								.toTry
-								.map { _ =>
-									new AudioDocument(UUID.randomUUID().toString, name, directory, pdfPath.fileName,
-										relativeAudioDirectory, if (paused) Some(pages.size) else None)
-								}
+						writeStructureFiles(directory, pages).map { _ =>
+							new AudioDocument(UUID.randomUUID().toString, name, directory, pdfPath.fileName,
+								relativeAudioDirectory, pausedAfter.map { _ + 1 })
 						}
 					}
 				}
@@ -122,6 +128,10 @@ case class AudioDocument(id: String, name: String, directory: Path, pdfFileName:
 	// ATTRIBUTES   ------------------------
 	
 	/**
+	 * Path to the PDF version of this document
+	 */
+	lazy val pdf = directory/pdfFileName
+	/**
 	 * Directory where the audio files of this document are stored
 	 */
 	lazy val audioDirectory = directory/relativeAudioDirectory
@@ -140,6 +150,18 @@ case class AudioDocument(id: String, name: String, directory: Path, pdfFileName:
 	}
 	
 	
+	// COMPUTED -----------------------------
+	
+	/**
+	 * @return Whether this document has been fully converted to audio
+	 */
+	def isComplete = conversionPausedAtPageIndex.isEmpty
+	/**
+	 * @return Whether parts of this document have not yet been converted to audio
+	 */
+	def isIncomplete = !isComplete
+	
+	
 	// IMPLEMENTED  -------------------------
 	
 	override def toModel: Model = Model.from("id" -> id, "name" -> name, "directory" -> directory.toJson,
@@ -148,6 +170,31 @@ case class AudioDocument(id: String, name: String, directory: Path, pdfFileName:
 	
 	
 	// OTHER    ----------------------------
+	
+	/**
+	 * Appends new pages to this document.
+	 * NB: Assumes that these pages continue from [[conversionPausedAtPageIndex]].
+	 * @param newPages New pages to append to this document
+	 * @param newPauseIndex [[conversionPausedAtPageIndex]] after adding these pages.
+	 *                      None if all pages have now been converted (default)
+	 * @return A modified copy of this document
+	 */
+	def append(newPages: Seq[SpokenPdfPage], newPauseIndex: Option[Int] = None) = {
+		if (newPages.isEmpty)
+			Success(this)
+		// Generates structural documents for the new pages
+		else
+			AudioDocument
+				.writeStructureFiles(directory, newPages,
+					firstPageIndex = conversionPausedAtPageIndex.getOrElse {
+						log("Warning: appending pages to a full document => Some pages may be overwritten")
+						this.pages match {
+							case TryCatch.Success(pages, failures) => pages.size + failures.size
+							case TryCatch.Failure(_) => 1
+						}
+					})
+				.map { _ => copy(conversionPausedAtPageIndex = newPauseIndex) }
+	}
 	
 	/**
 	 * Opens the PDF document associated with this document

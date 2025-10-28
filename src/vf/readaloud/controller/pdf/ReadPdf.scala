@@ -40,12 +40,13 @@ object ReadPdf
 	/**
 	 * Reads the (text) contents of a PDF
 	 * @param path Path to the PDF file to read
+	 * @param skipPages Number of pages to skip from the beginning of the document (default = 0)
 	 * @return Pages extracted from the PDF. Failure if file-reading failed.
 	 */
-	def apply(path: Path) = {
+	def apply(path: Path, skipPages: Int = 0) = {
 		PDDocument.load(path.toFile).tryConsume { doc =>
 			// Creates the extractor
-			val extractor = new Extractor()
+			val extractor = new Extractor(skipPages)
 			extractor.setSortByPosition(true)
 
 			// Processes the book text
@@ -57,13 +58,15 @@ object ReadPdf
 
 	// NESTED   ---------------------------
 
-	private class Extractor extends PDFTextStripper
+	private class Extractor(skipPages: Int = 0) extends PDFTextStripper
 	{
 		// ATTRIBUTES   ------------------------
-
+		
 		private val pagesBuilder = new VectorBuilder[PdfPage]()
 		private val pageBuilder = new VectorBuilder[PdfTextEntry]()
 		private val lastYP = Pointer(0.0)
+		
+		private var remainingPageSkips = skipPages
 
 
 		// IMPLEMENTED  ------------------------
@@ -87,84 +90,94 @@ object ReadPdf
 		
 		private def buildPage(): Unit = {
 			val textEntries = pageBuilder.result()
+			// Ignores empty pages
 			if (textEntries.nonEmpty) {
 				pageBuilder.clear()
 				
-				// Determines the normal text properties (start X, font, line Y progress)
-				val standardStartX = textEntries.iterator.map { _.x }.mostCommonEntry
-				val standardFont = textEntries.iterator.map { _.font }.mostCommonEntry
-				val standardLineHeight = textEntries.iterator
-					.paired.map { _.mapAndMerge { _.y } { (prev, next) => next - prev } }
-					.filter { _ > 0 }.mostCommonEntryOption.getOrElse(0.0)
-				
-				// Looks for the page header
-				// The header must have a low Y value, and fulfill at least one of the following:
-				//      1. Has different font
-				//      2. Has different X coordinate
-				//      3. Has a large gap until the next line
-				val potentialPageHeaderEntries = textEntries.takeWhile { _.y <= maxPageHeaderY }
-				val pageHeaderEntries = {
-					if (potentialPageHeaderEntries.isEmpty)
-						Empty
-					else {
-						val minHeaderGap = standardLineHeight * 3
-						potentialPageHeaderEntries.zipWithIndex.reverseIterator.find { case (entry, i) =>
-							textEntries.lift(i + 1).exists { nextEntry => nextEntry.y - entry.y >= minHeaderGap }
-						} match {
-							case Some((_, gapIndex)) => potentialPageHeaderEntries.take(gapIndex + 1)
-							case None =>
-								potentialPageHeaderEntries
-									.takeWhile { e => e.x != standardStartX || e.font != standardFont }
-						}
-					}
-				}
-				
-				// Splits the remaining text into sections based on header lines.
-				// Header lines are those that have a different font
-				val bodyEntries = textEntries.drop(pageHeaderEntries.size)
-				val headerIndices = bodyEntries.iterator.zipWithIndex
-					.filter { case (entry, _) => entry.font != standardFont }.map { _._2 }.toIntSet
-				val (sections, footer) = {
-					val yDiffThreshold = standardLineHeight * 1.25
-					val xThreshold = standardStartX + insignificantXDiff
-					
-					if (headerIndices.isEmpty)
-						Single(sectionFrom("", bodyEntries, yDiffThreshold, xThreshold)) -> ""
-					else {
-						val sectionsBuilder = OptimizedIndexedSeq.newBuilder[PdfSection]
-						// Adds the first section
-						val firstHeaderIndex = headerIndices.head
-						if (firstHeaderIndex > 0)
-							sectionsBuilder += sectionFrom("", bodyEntries.take(firstHeaderIndex),
-								yDiffThreshold, xThreshold)
-						// Adds the middle section
-						headerIndices.ranges.iterator.paired.foreach { headerRanges =>
-							val header = entriesToText(bodyEntries.slice(headerRanges.first))
-							val body = bodyEntries.slice(headerRanges.first.end + 1, headerRanges.second.start)
-							sectionsBuilder += sectionFrom(header, body, yDiffThreshold, xThreshold)
-						}
-						// Adds the last section
-						// However, if the last section only consists of a header (i.e. different font),
-						// and has a different X-positioning throughout, it will be considered a footer instead
-						val lastHeaderEntries = bodyEntries.slice(headerIndices.ranges.last)
-						val lastHeaderText = entriesToText(lastHeaderEntries)
-						val footer = {
-							if (headerIndices.last == bodyEntries.size - 1 &&
-								lastHeaderEntries.forall { e => (e.x - standardStartX).abs > insignificantXDiff })
-								lastHeaderText
-							else {
-								sectionsBuilder += sectionFrom(lastHeaderText, bodyEntries.drop(headerIndices.last + 1),
-									yDiffThreshold, xThreshold)
-								""
-							}
-						}
-						
-						sectionsBuilder.result() -> footer
-					}
-				}
-				
-				pagesBuilder += PdfPage(sections, entriesToText(pageHeaderEntries), footer)
+				// May skip the initial pages
+				if (remainingPageSkips > 0)
+					remainingPageSkips -= 1
+				else
+					addPage(textEntries)
 			}
+		}
+		
+		// Assumes that textEntries is not empty
+		private def addPage(textEntries: Seq[PdfTextEntry]) = {
+			// Determines the normal text properties (start X, font, line Y progress)
+			val standardStartX = textEntries.iterator.map { _.x }.mostCommonEntry
+			val standardFont = textEntries.iterator.map { _.font }.mostCommonEntry
+			val standardLineHeight = textEntries.iterator
+				.paired.map { _.mapAndMerge { _.y } { (prev, next) => next - prev } }
+				.filter { _ > 0 }.mostCommonEntryOption.getOrElse(0.0)
+			
+			// Looks for the page header
+			// The header must have a low Y value, and fulfill at least one of the following:
+			//      1. Has different font
+			//      2. Has different X coordinate
+			//      3. Has a large gap until the next line
+			val potentialPageHeaderEntries = textEntries.takeWhile { _.y <= maxPageHeaderY }
+			val pageHeaderEntries = {
+				if (potentialPageHeaderEntries.isEmpty)
+					Empty
+				else {
+					val minHeaderGap = standardLineHeight * 3
+					potentialPageHeaderEntries.zipWithIndex.reverseIterator.find { case (entry, i) =>
+						textEntries.lift(i + 1).exists { nextEntry => nextEntry.y - entry.y >= minHeaderGap }
+					} match {
+						case Some((_, gapIndex)) => potentialPageHeaderEntries.take(gapIndex + 1)
+						case None =>
+							potentialPageHeaderEntries
+								.takeWhile { e => e.x != standardStartX || e.font != standardFont }
+					}
+				}
+			}
+			
+			// Splits the remaining text into sections based on header lines.
+			// Header lines are those that have a different font
+			val bodyEntries = textEntries.drop(pageHeaderEntries.size)
+			val headerIndices = bodyEntries.iterator.zipWithIndex
+				.filter { case (entry, _) => entry.font != standardFont }.map { _._2 }.toIntSet
+			val (sections, footer) = {
+				val yDiffThreshold = standardLineHeight * 1.25
+				val xThreshold = standardStartX + insignificantXDiff
+				
+				if (headerIndices.isEmpty)
+					Single(sectionFrom("", bodyEntries, yDiffThreshold, xThreshold)) -> ""
+				else {
+					val sectionsBuilder = OptimizedIndexedSeq.newBuilder[PdfSection]
+					// Adds the first section
+					val firstHeaderIndex = headerIndices.head
+					if (firstHeaderIndex > 0)
+						sectionsBuilder += sectionFrom("", bodyEntries.take(firstHeaderIndex),
+							yDiffThreshold, xThreshold)
+					// Adds the middle section
+					headerIndices.ranges.iterator.paired.foreach { headerRanges =>
+						val header = entriesToText(bodyEntries.slice(headerRanges.first))
+						val body = bodyEntries.slice(headerRanges.first.end + 1, headerRanges.second.start)
+						sectionsBuilder += sectionFrom(header, body, yDiffThreshold, xThreshold)
+					}
+					// Adds the last section
+					// However, if the last section only consists of a header (i.e. different font),
+					// and has a different X-positioning throughout, it will be considered a footer instead
+					val lastHeaderEntries = bodyEntries.slice(headerIndices.ranges.last)
+					val lastHeaderText = entriesToText(lastHeaderEntries)
+					val footer = {
+						if (headerIndices.last == bodyEntries.size - 1 &&
+							lastHeaderEntries.forall { e => (e.x - standardStartX).abs > insignificantXDiff })
+							lastHeaderText
+						else {
+							sectionsBuilder += sectionFrom(lastHeaderText, bodyEntries.drop(headerIndices.last + 1),
+								yDiffThreshold, xThreshold)
+							""
+						}
+					}
+					
+					sectionsBuilder.result() -> footer
+				}
+			}
+			
+			pagesBuilder += PdfPage(sections, entriesToText(pageHeaderEntries), footer)
 		}
 		
 		private def sectionFrom(header: String, entries: Seq[PdfTextEntry], yDiffThreshold: Double, xThreshold: Double) = {
