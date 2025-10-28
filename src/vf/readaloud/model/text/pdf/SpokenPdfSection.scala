@@ -1,7 +1,8 @@
 package vf.readaloud.model.text.pdf
 
 import utopia.flow.generic.model.immutable.Model
-import utopia.flow.generic.model.template.{ModelConvertible, ModelLike, Property}
+import utopia.flow.generic.model.template.ModelConvertible
+import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
 import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactory
 import utopia.flow.util.TryExtensions._
@@ -15,7 +16,7 @@ object SpokenPdfSection extends FromModelFactory[SpokenPdfSection]
 	// IMPLEMENTED  -------------------------
 	
 	// Paragraph-parsing must at least partially succeed
-	override def apply(model: ModelLike[Property]): Try[SpokenPdfSection] =
+	override def apply(model: HasProperties): Try[SpokenPdfSection] =
 		model("paragraphs").tryVector
 			.flatMap { paragraphValues =>
 				paragraphValues.view.map { _.tryModel.flatMap(SpokenText.apply) }

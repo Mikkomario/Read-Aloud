@@ -1,7 +1,8 @@
 package vf.readaloud.model.session
 
 import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
-import utopia.flow.generic.model.template.{ModelConvertible, ModelLike, Property}
+import utopia.flow.generic.model.template.ModelConvertible
+import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
 import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactory
 import utopia.flow.generic.model.mutable.DataType.{ModelType, StringType}
@@ -20,7 +21,7 @@ object SessionEndState extends FromModelFactory[SessionEndState]
 	
 	// IMPLEMENTED  ---------------------
 	
-	override def apply(model: ModelLike[Property]): Try[SessionEndState] = schema.validate(model).flatMap { model =>
+	override def apply(model: HasProperties): Try[SessionEndState] = schema.validate(model).flatMap { model =>
 		DocumentPosition(model("position").getModel).map { position =>
 			apply(model("document").getString, position)
 		}

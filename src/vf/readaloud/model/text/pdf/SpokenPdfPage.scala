@@ -1,7 +1,8 @@
 package vf.readaloud.model.text.pdf
 
 import utopia.flow.generic.model.immutable.Model
-import utopia.flow.generic.model.template.{ModelConvertible, ModelLike, Property}
+import utopia.flow.generic.model.template.ModelConvertible
+import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
 import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactory
 import utopia.flow.util.TryExtensions._
@@ -11,7 +12,7 @@ import scala.util.Try
 
 object SpokenPdfPage extends FromModelFactory[SpokenPdfPage]
 {
-	override def apply(model: ModelLike[Property]): Try[SpokenPdfPage] = model("sections").tryVector
+	override def apply(model: HasProperties): Try[SpokenPdfPage] = model("sections").tryVector
 		.flatMap { sectionValues =>
 			sectionValues.view.map { _.tryModel.flatMap(SpokenPdfSection.apply) }.toTryCatch
 				.logToTryWithMessage("Failed to parse some of the sections")

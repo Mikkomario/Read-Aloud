@@ -5,7 +5,7 @@ import utopia.flow.async.TryFuture
 import utopia.flow.async.process.WaitTarget.{NoWait, Until}
 import utopia.flow.async.process.{Breakable, LoopingProcess, Wait}
 import utopia.flow.collection.CollectionExtensions._
-import utopia.flow.time.Now
+import utopia.flow.time.{Duration, Now}
 import utopia.flow.time.TimeExtensions._
 import utopia.flow.view.mutable.eventful.ResettableFlag
 import utopia.flow.view.mutable.{Pointer, Resettable}
@@ -14,7 +14,6 @@ import vf.readaloud.util.Common._
 
 import java.time.Instant
 import scala.concurrent.Future
-import scala.concurrent.duration.FiniteDuration
 import scala.util.{Failure, Success, Try}
 
 /**
@@ -25,8 +24,8 @@ import scala.util.{Failure, Success, Try}
 // NB: Assumes that pages is non-empty
 // TODO: Extend HasProcessState, once that's available
 class DocumentNarrator(pages: Seq[SpokenPdfPage],
-                       paragraphPause: FiniteDuration = 1.seconds, sectionPause: FiniteDuration = 2.seconds,
-                       headerPause: FiniteDuration = 1.seconds, pagePause: FiniteDuration = 0.5.seconds)
+                       paragraphPause: Duration = 1.seconds, sectionPause: Duration = 2.seconds,
+                       headerPause: Duration = 1.seconds, pagePause: Duration = 0.5.seconds)
                       (implicit audioContext: AudioContext)
 	extends Resettable with Breakable
 {

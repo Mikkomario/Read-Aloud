@@ -14,7 +14,7 @@ import java.io.BufferedInputStream
 import java.nio.file.{Files, Path}
 import java.time.Instant
 import javax.sound.sampled.{AudioInputStream, AudioSystem}
-import scala.concurrent.duration.FiniteDuration
+import utopia.flow.time.Duration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
@@ -45,7 +45,7 @@ object PlayWav
  * @author Mikko Hilpinen
  * @since 29.09.2025, v0.1
  */
-class PlayWav(path: Path, bufferSize: FiniteDuration = defaultBufferSize)
+class PlayWav(path: Path, bufferSize: Duration = defaultBufferSize)
              (implicit context: AudioContext, exc: ExecutionContext, log: Logger)
 {
 	// ATTRIBUTES   -------------------------
@@ -61,7 +61,7 @@ class PlayWav(path: Path, bufferSize: FiniteDuration = defaultBufferSize)
 	 * Note: Only affects the next call to [[apply]], not the consequent calls.
 	 * @return A lazily acquisible future that resolves once the buffering has completed
 	 */
-	def prepare(bufferSize: FiniteDuration = defaultPreparedBufferSize) = preparedStreamP.mutate {
+	def prepare(bufferSize: Duration = defaultPreparedBufferSize) = preparedStreamP.mutate {
 		// Case: Prepare already called => Yields the same result
 		case Some(existing) => Lazy { existing.map { _ => () } } -> Some(existing)
 		case None =>
@@ -194,7 +194,7 @@ class PlayWav(path: Path, bufferSize: FiniteDuration = defaultBufferSize)
 		}
 	}
 	
-	private def bufferSizeFrom(format: AudioFormat, length: FiniteDuration) = {
+	private def bufferSizeFrom(format: AudioFormat, length: Duration) = {
 		format.byteRate match {
 			case Some(bytesPerSecond) =>
 				val raw = (length.toPreciseSeconds * bytesPerSecond).toInt
