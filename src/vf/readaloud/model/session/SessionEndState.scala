@@ -7,7 +7,7 @@ import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactory
 import utopia.flow.generic.model.mutable.DataType.{ModelType, StringType}
 import utopia.flow.parse.file.FileExtensions._
-import vf.readaloud.model.text.pdf.DocumentPosition
+import vf.readaloud.model.document.pdf.DocumentPosition
 
 import java.nio.file.Path
 import scala.util.Try

@@ -10,7 +10,7 @@ import utopia.flow.view.mutable.Pointer
 import utopia.paradigm.measurement.DistanceExtensions._
 import utopia.paradigm.measurement.DistanceUnit.Dtp
 import utopia.paradigm.shape.shape2d.vector.point.Point
-import vf.readaloud.model.text.pdf.{PdfPage, PdfSection, PdfTextEntry}
+import vf.readaloud.model.document.pdf.{PdfPage, PdfSection, PdfTextEntry}
 
 import java.nio.file.Path
 import java.util

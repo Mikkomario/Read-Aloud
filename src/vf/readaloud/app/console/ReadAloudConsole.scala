@@ -20,7 +20,7 @@ import utopia.flow.view.template.eventful.Flag
 import vf.readaloud.controller.audio.{AudioContext, DocumentNarrator, GenerateAudio}
 import vf.readaloud.controller.pdf.ReadPdf
 import vf.readaloud.model.session.SessionEndState
-import vf.readaloud.model.text.pdf.{DocumentPosition, SpokenPdfPage}
+import vf.readaloud.model.document.pdf.{DocumentPosition, SpokenPdfPage}
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path

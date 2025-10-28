@@ -1,10 +1,10 @@
-package vf.readaloud.model.text.pdf
+package vf.readaloud.model.document.pdf
 
-import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
-import utopia.flow.generic.model.template.ModelConvertible
 import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactoryWithSchema
+import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
 import utopia.flow.generic.model.mutable.DataType.IntType
+import utopia.flow.generic.model.template.ModelConvertible
 
 object DocumentPosition extends FromModelFactoryWithSchema[DocumentPosition]
 {

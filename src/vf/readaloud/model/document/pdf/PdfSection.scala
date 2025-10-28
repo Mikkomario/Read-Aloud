@@ -1,4 +1,4 @@
-package vf.readaloud.model.text.pdf
+package vf.readaloud.model.document.pdf
 
 import utopia.flow.util.StringExtensions._
 

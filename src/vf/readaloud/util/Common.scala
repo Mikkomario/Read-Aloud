@@ -4,7 +4,10 @@ import utopia.bunnymunch.jawn.JsonBunny
 import utopia.echo.controller.client.PiperClient
 import utopia.flow.async.context.ThreadPool
 import utopia.flow.parse.json.JsonParser
+import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.util.logging.{Logger, SysErrLogger}
+
+import java.nio.file.Path
 
 /**
  * Provides access to commonly used values
@@ -20,4 +23,6 @@ object Common
 	implicit val jsonParser: JsonParser = JsonBunny
 	
 	implicit val piper: PiperClient = PiperClient()
+	
+	lazy val dataDirectory: Path = "data"
 }

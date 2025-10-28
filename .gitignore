@@ -1,7 +1,7 @@
 ### Custom ###
 
 input/
-data/
+/data/
 .idea/
 
 ### Other ###

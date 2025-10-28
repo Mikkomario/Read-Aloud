@@ -9,7 +9,7 @@ import utopia.flow.time.{Duration, Now}
 import utopia.flow.time.TimeExtensions._
 import utopia.flow.view.mutable.eventful.ResettableFlag
 import utopia.flow.view.mutable.{Pointer, Resettable}
-import vf.readaloud.model.text.pdf.{DocumentPosition, SpokenPdfPage}
+import vf.readaloud.model.document.pdf.{DocumentPosition, SpokenPdfPage}
 import vf.readaloud.util.Common._
 
 import java.time.Instant

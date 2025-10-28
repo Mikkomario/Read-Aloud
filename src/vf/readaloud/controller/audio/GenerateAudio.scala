@@ -9,8 +9,8 @@ import utopia.flow.parse.string.Regex
 import utopia.flow.util.StringExtensions._
 import utopia.flow.util.TryCatch
 import utopia.flow.util.TryExtensions._
-import vf.readaloud.model.text.SpokenText
-import vf.readaloud.model.text.pdf.{PdfPage, SpokenPdfPage, SpokenPdfSection}
+import vf.readaloud.model.document.SpokenText
+import vf.readaloud.model.document.pdf.{PdfPage, SpokenPdfPage, SpokenPdfSection}
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path
@@ -37,6 +37,7 @@ object GenerateAudio
 	 * @param fileNamePrefix Prefix added to all file names (optional)
 	 * @return Document pages with audio included. May yield full or partial failures.
 	 */
+	// TODO: Make this generate an AudioDocument instead
 	def to(pdf: Seq[PdfPage], directory: Path, fileNamePrefix: => String = "")
 	      (implicit settings: TtsParams) =
 	{
