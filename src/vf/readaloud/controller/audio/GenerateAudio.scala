@@ -6,8 +6,10 @@ import utopia.flow.collection.CollectionExtensions._
 import utopia.flow.collection.immutable.Empty
 import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.parse.string.Regex
+import utopia.flow.time.TimeExtensions._
+import utopia.flow.time.TimeUnit.Minute
 import utopia.flow.util.StringExtensions._
-import utopia.flow.util.TryCatch
+import utopia.flow.util.{ProgressTracker, TryCatch}
 import utopia.flow.util.TryExtensions._
 import utopia.flow.view.immutable.eventful.AlwaysFalse
 import utopia.flow.view.template.MaybeSet
@@ -18,6 +20,7 @@ import vf.readaloud.model.document.pdf.{PdfPage, SpokenPdfPage, SpokenPdfSection
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path
+import java.time.format.DateTimeFormatter
 
 /**
  * Adds audio to read PDF documents
@@ -29,6 +32,7 @@ object GenerateAudio
 {
 	// ATTRIBUTES   -------------------
 	
+	private val hhmm = DateTimeFormatter.ofPattern("HH:mm")
 	private val fileNameUpdateRegex = (!Regex.letterOrDigit).oneOrMoreTimes
 	
 	
@@ -117,15 +121,27 @@ object GenerateAudio
 	private def _to(pdf: Seq[PdfPage], directory: Path, firstIndex: Int, fileNamePrefix: String,
 	                settings: TtsParams, stopFlag: MaybeSet) =
 	{
+		// Prepares progress-tracking
+		val pageCount = pdf.size
+		val finalPageIndex = firstIndex + pageCount - 1
+		val progress = ProgressTracker(0) { _.toDouble / pageCount }
+		progress.addListener { e =>
+			val etaStr = e.projectedCompletion match {
+				case Some(completion) =>
+					s"; ETA ${completion.toLocalTime.format(hhmm)} (${
+						(completion - e.timestamp).roundTo(Minute).description })"
+				case None => ""
+			}
+			println(s"Converted page ${ firstIndex + e.value }/$finalPageIndex$etaStr")
+		}
+		
 		// Uses slightly different settings for headers
 		lazy val headerSettings = settings.slower
-		val finalPageIndex = firstIndex + pdf.size - 1
 		// Stops iteration, if stopFlag gets set
 		pdf.iterator.takeWhile { _ => stopFlag.isNotSet }.zipWithIndex
 			.map { case (page, pageIndex) =>
 				val truePageIndex = firstIndex + pageIndex
-				println(s"Processing page $truePageIndex/$finalPageIndex")
-				page.sections.iterator.zipWithIndex
+				val result = page.sections.iterator.zipWithIndex
 					.map { case (section, sectionIndex) =>
 						val pathPrefix = s"${ fileNamePrefix.appendIfNotEmpty("-") }$truePageIndex-${
 							sectionIndex + 1 }${
@@ -151,6 +167,10 @@ object GenerateAudio
 							}
 					}
 					.toTryCatch.map { SpokenPdfPage(_, page.pageHeader, page.footer) -> pageIndex }
+				
+				// Updates the progress
+				progress.value = pageIndex + 1
+				result
 			}
 			.toTryCatch
 			.map { pages =>

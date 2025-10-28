@@ -16,7 +16,6 @@ import utopia.flow.util.console.ConsoleExtensions._
 import utopia.flow.util.console.{ArgumentSchema, Command, Console}
 import utopia.flow.view.immutable.eventful.AlwaysFalse
 import utopia.flow.view.mutable.{Pointer, Settable}
-import utopia.flow.view.mutable.eventful.SettableFlag
 import utopia.flow.view.template.MaybeSet
 import utopia.flow.view.template.eventful.Flag
 import vf.readaloud.controller.audio.{AudioContext, DocumentNarrator, GenerateAudio}
