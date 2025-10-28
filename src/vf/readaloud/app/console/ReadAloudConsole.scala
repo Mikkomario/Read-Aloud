@@ -5,7 +5,7 @@ import utopia.flow.async.AsyncExtensions._
 import utopia.flow.async.context.CloseHook
 import utopia.flow.async.process.Delay
 import utopia.flow.collection.CollectionExtensions._
-import utopia.flow.collection.immutable.{Empty, Pair}
+import utopia.flow.collection.immutable.Pair
 import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.parse.file.FileUtils
 import utopia.flow.time.TimeExtensions._
@@ -18,9 +18,10 @@ import utopia.flow.view.immutable.eventful.AlwaysFalse
 import utopia.flow.view.mutable.Pointer
 import utopia.flow.view.template.eventful.Flag
 import vf.readaloud.controller.audio.{AudioContext, DocumentNarrator, GenerateAudio}
-import vf.readaloud.controller.pdf.ReadPdf
+import vf.readaloud.controller.data.AudioDocuments
+import vf.readaloud.model.document.AudioDocument
+import vf.readaloud.model.document.pdf.DocumentPosition
 import vf.readaloud.model.session.SessionEndState
-import vf.readaloud.model.document.pdf.{DocumentPosition, SpokenPdfPage}
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path
@@ -40,11 +41,9 @@ object ReadAloudConsole extends App
 	private implicit val ttsSettings: TtsParams = TtsParams.empty.fasterBy(0.05).withNoiseScale(0.6).withVariedTiming
 	
 	private val inputDirectory: Path = "input"
-	private val dataDirectory: Path = "data"
-	private val docDirectory: Path = dataDirectory/"documents"
 	
-	private val queuedPagesP = Pointer[(Seq[SpokenPdfPage], Option[Path])](Empty -> None)
-	private val openDocumentDirP = Pointer.empty[Path]
+	private val lastDocumentP = Pointer.empty[AudioDocument]
+	private val openDocumentP = Pointer.empty[AudioDocument]
 	private val narratorP = Pointer.eventful.empty[DocumentNarrator]
 	
 	private val prepareCommand = Command("prepare", "make", help = "Prepares audio for a PDF document")(
@@ -76,82 +75,27 @@ object ReadAloudConsole extends App
 						StdIn.selectFrom(files.sortBy { _.fileName }.map { f => f -> f.fileName }, "files", "convert")
 							.foreach { targetFile =>
 								val fileName = targetFile.fileName
-								println(s"Reading $fileName...")
-								val spokenDocumentResult = ReadPdf(targetFile).flatMapCatching { pages =>
-									println(s"$fileName successfully read")
-									// Asks the user to specify a name for this document
-									val documentDirectory = {
-										val defaultName = FileUtils.normalizeFileName(fileName.toLowerCase)
-											.untilLast(".")
-										val possiblyDuplicatePath = docDirectory /
-											StdIn.readNonEmptyLine(
-													s"What do you want to name this document? \nHint: Try not to include special characters\nDefault = $defaultName")
-												.getOrElse(defaultName)
-										
-										if (possiblyDuplicatePath.exists) {
-											if (StdIn.ask("A document with this name exists already. Do you want to overwrite it?")) {
-												possiblyDuplicatePath.deleteContents()
-													.logWithMessage("Failed to delete previous document files")
-												possiblyDuplicatePath
-											}
-											else {
-												val uniqueVersion = possiblyDuplicatePath.unique
-												println(s"Named the document ${ uniqueVersion.fileName } instead")
-												uniqueVersion
-											}
-										}
-										else
-											possiblyDuplicatePath
-									}
-									// Generates the audio
-									documentDirectory.createDirectories().flatMapCatching { dir =>
-										println(s"Preparing audio...")
-										GenerateAudio.to(pages, dir/"audio").flatMap { spokenPages =>
-											// Moves a copy of the original PDF to the directory
-											val copyResult = targetFile.copyTo(dir)
-											openDocumentDirP.setOne(dir)
-											TryCatch.Success(dir -> spokenPages, copyResult.failure.emptyOrSingle)
-										}
-									}
-								}
+								val defaultDocName = FileUtils.normalizeFileName(fileName.toLowerCase).untilLast(".")
+								val docName = StdIn.readNonEmptyLine(
+										s"What do you want to name this document? \nHint: Try not to include special characters\nDefault = $defaultDocName")
+									.getOrElse(defaultDocName)
 								
-								spokenDocumentResult match {
-									case TryCatch.Success((directory: Path, pages: Seq[SpokenPdfPage]), partialFailures) =>
+								GenerateAudio.forDocument(AudioDocument.newDocument(docName, targetFile)) match {
+									case TryCatch.Success(document: AudioDocument, failures) =>
 										// Logs partial failures
-										if (partialFailures.nonEmpty) {
-											println(s"Encountered ${partialFailures.size} failures during content processing. The document may be incomplete.")
-											log(partialFailures.head,
-												s"This and ${ partialFailures.size - 1 } other failures during content processing")
+										if (failures.nonEmpty) {
+											println(s"Encountered ${failures.size} failures during content processing. The document may be incomplete.")
+											log(failures.head,
+												s"This and ${ failures.size - 1 } other failures during content processing")
 										}
-										
-										println("Finalizing the document...")
-										// Saves the document structure as JSON
-										val saveResult = (directory/"structure").createDirectories()
-											.flatMapCatching { dir =>
-												pages.zipWithIndex
-													.map { case (page, index) =>
-														(dir/s"page-${ index + 1 }.json").writeJson(page)
-													}
-													.toTryCatch
-											}
-										saveResult match {
-											case TryCatch.Success(_, partialFailures) =>
-												if (partialFailures.nonEmpty) {
-													log(partialFailures.head,
-														s"This and ${ partialFailures.size - 1 } other failures during document structure -saving")
-													println("The document structure couldn't be fully saved. The document may appear partial on consequent sessions.")
-												}
-											case TryCatch.Failure(error) =>
-												log(error, "Couldn't save the document structure")
-												println("Document structure couldn't be saved. You can only listen to this document during this session.")
-										}
+										AudioDocuments += document
 										
 										// Queues the pages for faster listening
-										queuedPagesP.value = pages -> Some(targetFile)
-										
+										lastDocumentP.setOne(document)
 										println("The document is now ready to be listened. Use the \"listen\" command to listen it.")
-									
-									case TryCatch.Failure(error) => log(error, "Couldn't process the document")
+										
+									case TryCatch.Failure(error) =>
+										log(error, "Couldn't generate audio for the document")
 								}
 							}
 					
@@ -162,30 +106,26 @@ object ReadAloudConsole extends App
 		ArgumentSchema("document", help = "Name of the document to listen to (optional)")) {
 		args =>
 			// Selects the document to listen to
-			val pagesToListen = {
+			val docToListen = {
 				val docName = args("document").getString
-				if (docName.isEmpty && queuedPagesP.value._1.nonEmpty &&
+				if (docName.isEmpty && lastDocumentP.nonEmpty &&
 					StdIn.ask("Do you want to listen to the last processed document?", default = true))
-					Some(Left(queuedPagesP.getAndSet(Empty -> None)))
+					lastDocumentP.pop()
 				else {
-					docDirectory
-						.iterateChildren { filesIter =>
-							if (docName.isEmpty)
-								filesIter.toOptimizedSeq
-							else
-								filesIter.filter { _.fileName.containsIgnoreCase(docName) }.toOptimizedSeq
-						}
-						.logWithMessage("Couldn't look up existing documents")
-						.flatMap { potentialDocPaths =>
-							StdIn.selectFrom(potentialDocPaths.sortBy { _.fileName }.map { p => p -> p.fileName },
-								"documents", "listen").map { Right(_) }
-						}
+					val docs = AudioDocuments.value
+					val docsToSelectFrom = {
+						if (docName.nonEmpty)
+							docs.filter { _.name.containsIgnoreCase(docName) }.notEmpty.getOrElse {
+								println(s"No existing document matched \"$docName\"")
+								docs
+							}
+						else
+							docs
+					}
+					StdIn.selectFrom(docsToSelectFrom.sortBy { _.name }.map { p => p -> p.name }, "documents", "listen")
 				}
 			}
-			pagesToListen.foreach {
-				case Left((pages, pdf)) => startListening(pdf, pages, None)
-				case Right(directory) => startListening(directory)
-			}
+			docToListen.foreach { startListening(_) }
 	}
 	private val pauseCommand = Command.withoutArguments("pause", "p", help = "Pauses the narration") {
 		if (narratorP.value.exists { _.pause() })
@@ -260,10 +200,16 @@ object ReadAloudConsole extends App
 	audioContext.registerToStopOnceJVMCloses()
 	
 	// Loads the previous session, if appropriate
-	Some(dataDirectory/"session.json").filter { _.exists }
-		.flatMap { SessionEndState.fromPath(_).logWithMessage("Failed to load the previous session") }
-		.filter { state => StdIn.ask(s"Do you want to continue listening ${ state.documentDirectory.fileName }?") }
-		.foreach { state => startListening(state.documentDirectory, at = Some(state.position)) }
+	Some(dataDirectory/"session.json").filter { _.exists }.foreach { path =>
+		SessionEndState.fromPath(path).logWithMessage("Failed to load the previous session").foreach { state =>
+			AudioDocuments.value.find { _.id == state.documentId }.foreach { doc =>
+				if (StdIn.ask(s"Do you want to continue listening ${ doc.name }?"))
+					startListening(doc, at = Some(state.position))
+				else
+					openDocumentP.setOne(doc)
+			}
+		}
+	}
 	// Before closing this software, makes sure the state is saved
 	CloseHook.registerAction { saveState() }
 	
@@ -281,10 +227,10 @@ object ReadAloudConsole extends App
 	
 	// OTHER    ---------------------------
 	
-	private def saveState() = openDocumentDirP.pop().foreach { docDir =>
+	private def saveState() = openDocumentP.pop().foreach { doc =>
 		(dataDirectory/"session.json").createDirectories()
 			.flatMap { sessionPath =>
-				sessionPath.writeJson(SessionEndState(docDir, narratorP.value match {
+				sessionPath.writeJson(SessionEndState(doc.id, narratorP.value match {
 					case Some(narrator) => narrator.position
 					case None => DocumentPosition.start
 				}))
@@ -292,45 +238,34 @@ object ReadAloudConsole extends App
 			.logWithMessage("Failed to save the current document state")
 	}
 	
-	private def startListening(docDirectory: Path, at: Option[DocumentPosition] = None): Unit = {
-		openDocumentDirP.setOne(docDirectory)
-		(docDirectory/"structure")
-			.iterateChildren { pathsIter =>
-				pathsIter.filter { _.fileType == "json" }.toVector.sortBy { _.fileName }
-					.map { SpokenPdfPage.fromPath(_) }.toTryCatch
-					.map { pages =>
-						val pdf = docDirectory.iterateChildren { _.find { _.fileType == "pdf" } }
-							.logWithMessage("Failed to scan for the PDF file").flatten
-						pages -> pdf
+	private def startListening(document: AudioDocument, at: Option[DocumentPosition] = None) = {
+		document.pages match {
+			case TryCatch.Success(pages, failures) =>
+				openDocumentP.setOne(document)
+				// Logs partial failures
+				if (failures.nonEmpty) {
+					println(s"Encountered ${failures.size} failures during content loading. The document may be incomplete.")
+					log(failures.head,
+						s"This and ${ failures.size - 1 } other failures during content loading")
+				}
+				if (pages.nonEmpty) {
+					val narrator = new DocumentNarrator(pages)
+					at.foreach { startingPosition =>
+						println(s"Starting from page ${ startingPosition.pageIndex + 1 }/${ pages.size }${
+							pages.lift(startingPosition.pageIndex) match {
+								case Some(page) => page.pageHeader.prependIfNotEmpty(": ")
+								case None => ""
+							}
+						}")
+						narrator.position = startingPosition
 					}
-			}
-			.flatMap { _.logToTryWithMessage("Failed to load some of the document pages") } match
-		{
-			case Success((pages, pdf)) => startListening(pdf, pages, at)
-			case Failure(error) => log(error, "Couldn't load a document to listen to")
+					Delay(1.seconds) { narrator.start() }
+					narratorP.setOne(narrator)
+					println("You can control the narration with the \"pause\" and \"stop\" commands")
+				}
+				document.openPdf().logWithMessage("Failed to open the PDF document")
+			
+			case TryCatch.Failure(error) => log(error, "Couldn't load the document's contents")
 		}
-	}
-	
-	private def startListening(pdf: Option[Path], pages: Seq[SpokenPdfPage], at: Option[DocumentPosition]) = {
-		// Case: Successfully selected a document => Prepares and starts the narrator
-		if (pages.nonEmpty) {
-			val narrator = new DocumentNarrator(pages)
-			at.foreach { startingPosition =>
-				println(s"Starting from page ${ startingPosition.pageIndex + 1 }/${ pages.size }${
-					pages.lift(startingPosition.pageIndex) match {
-						case Some(page) => page.pageHeader.prependIfNotEmpty(": ")
-						case None => ""
-					}
-				}")
-				narrator.position = startingPosition
-			}
-			if (pdf.isDefined)
-				Delay(1.seconds) { narrator.start() }
-			else
-				narrator.start()
-			narratorP.setOne(narrator)
-			println("You can control the narration with the \"pause\" and \"stop\" commands")
-		}
-		pdf.foreach { _.openInDesktop().logWithMessage("Failed to open the PDF") }
 	}
 }

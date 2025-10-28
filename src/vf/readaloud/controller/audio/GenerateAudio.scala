@@ -9,6 +9,8 @@ import utopia.flow.parse.string.Regex
 import utopia.flow.util.StringExtensions._
 import utopia.flow.util.TryCatch
 import utopia.flow.util.TryExtensions._
+import vf.readaloud.controller.pdf.ReadPdf
+import vf.readaloud.model.document.AudioDocument.NewAudioDocument
 import vf.readaloud.model.document.SpokenText
 import vf.readaloud.model.document.pdf.{PdfPage, SpokenPdfPage, SpokenPdfSection}
 import vf.readaloud.util.Common._
@@ -31,13 +33,30 @@ object GenerateAudio
 	// OTHER    -----------------------
 	
 	/**
+	 * Generates audio for a prepared document
+	 * @param document The document for which audio is generated
+	 * @param fileNamePrefix Prefix added to all audio file names (optional)
+	 * @param settings Settings to use in text-to-speech (implicit)
+	 * @return Generated audio document. May contain failure(s).
+	 */
+	def forDocument(document: NewAudioDocument, fileNamePrefix: => String = "")(implicit settings: TtsParams) = {
+		// Reads the PDF
+		ReadPdf(document.pdf).flatMapCatching { pages =>
+			// Converts its contents to audio files
+			to(pages, document.audioDirectory, fileNamePrefix).flatMap { spokenPages =>
+				// Finalizes the document
+				document.initialize(spokenPages).toTryCatch
+			}
+		}
+	}
+	
+	/**
 	 * Generates a spoken version of a PDF document
 	 * @param pdf The document to convert
 	 * @param directory Directory where the generated audio files will be placed
 	 * @param fileNamePrefix Prefix added to all file names (optional)
 	 * @return Document pages with audio included. May yield full or partial failures.
 	 */
-	// TODO: Make this generate an AudioDocument instead
 	def to(pdf: Seq[PdfPage], directory: Path, fileNamePrefix: => String = "")
 	      (implicit settings: TtsParams) =
 	{

@@ -7,6 +7,7 @@ import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
 import utopia.flow.generic.model.mutable.DataType.StringType
 import utopia.flow.generic.model.template.ModelConvertible
 import utopia.flow.parse.file.FileExtensions._
+import utopia.flow.parse.file.FileUtils
 import utopia.flow.time.Now
 import utopia.flow.util.TryExtensions._
 import vf.readaloud.model.document.pdf.SpokenPdfPage
@@ -38,36 +39,62 @@ object AudioDocument extends FromModelFactoryWithSchema[AudioDocument]
 	/**
 	 * Creates a new document, collecting the associated files
 	 * @param name Name of this document
-	 * @param directory Directory where this document's files will be placed
 	 * @param pdf The PDF document used when creating this document
-	 * @param pages Generated (spoken) pages
-	 * @param paused Whether the document generation was paused (default = false)
 	 * @return A new document. Failure if failed to move or create files.
 	 */
-	// TODO: This version assumes that the pages have been stored in 'directory', all in the same directory
-	def newDocument(name: String, directory: Path, pdf: Path, pages: Seq[SpokenPdfPage], paused: Boolean = false) = {
-		// Copies the PDF
-		pdf.copyTo(directory).flatMap { pdfPath =>
-			// Determines the audio directory
-			val relativeAudioDirectory = pages.findMap { _.sections.findMap { _.paragraphs.headOption } } match {
-				case Some(text) =>
-					text.audioPath.parent.relativeTo(directory).toOption
-						.toTry { new IllegalArgumentException(
-							"The specified audio paths don't reside in the specified directory") }
-				case None => Success("audio": Path)
-			}
-			relativeAudioDirectory.flatMap { relativeAudioDirectory =>
-				// Writes the structure JSON documents
-				(directory/"structure").createDirectories().flatMap { pagesDir =>
-					pages.iterator.zipWithIndex
-						.map { case (page, index) =>
-							(pagesDir/s"page-${ index + 1 }.json").write(page.toContextualModel.toJson)
+	def newDocument(name: String, pdf: Path) = NewAudioDocument(name, pdf)
+	
+	
+	// NESTED   --------------------------
+	
+	case class NewAudioDocument(name: String, pdf: Path)
+	{
+		// ATTRIBUTES   ------------------
+		
+		/**
+		 * Directory where the files in this document will be placed
+		 */
+		lazy val directory = (dataDirectory/s"documents/${ FileUtils.normalizeFileName(name) }").unique
+		/**
+		 * Directory where the audio files for this document should be stored
+		 */
+		lazy val audioDirectory = directory/"audio"
+		
+		
+		// OTHER    ---------------------
+		
+		/**
+		 * Converts this prepared document into an actual audio document
+		 * @param pages Pages to include in this document
+		 * @param paused Whether audio-generation was paused (default = false)
+		 * @return Generated audio document. Failure if file-interaction failed at some level.
+		 */
+		def initialize(pages: Seq[SpokenPdfPage], paused: Boolean = false) = {
+			directory.createDirectories().flatMap { directory =>
+				// Copies the PDF
+				pdf.copyTo(directory).flatMap { pdfPath =>
+					// Determines the audio directory
+					val relativeAudioDirectory = pages.findMap { _.sections.findMap { _.paragraphs.headOption } } match {
+						case Some(text) =>
+							text.audioPath.parent.relativeTo(directory).toOption
+								.toTry { new IllegalArgumentException(
+									"The specified audio paths don't reside in this document's directory") }
+						case None => Success("audio": Path)
+					}
+					relativeAudioDirectory.flatMap { relativeAudioDirectory =>
+						// Writes the structure JSON documents
+						(directory/"structure").createDirectories().flatMap { pagesDir =>
+							pages.iterator.zipWithIndex
+								.map { case (page, index) =>
+									(pagesDir/s"page-${ index + 1 }.json").write(page.toContextualModel.toJson)
+								}
+								.toTry
+								.map { _ =>
+									new AudioDocument(UUID.randomUUID().toString, name, directory, pdfPath.fileName,
+										relativeAudioDirectory, if (paused) Some(pages.size) else None)
+								}
 						}
-						.toTry
-						.map { _ =>
-							new AudioDocument(UUID.randomUUID().toString, name, directory, pdfPath.fileName,
-								relativeAudioDirectory, if (paused) Some(pages.size) else None)
-						}
+					}
 				}
 			}
 		}

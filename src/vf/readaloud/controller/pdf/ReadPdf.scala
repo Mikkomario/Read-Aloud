@@ -21,7 +21,6 @@ import scala.collection.immutable.VectorBuilder
  * @author Mikko Hilpinen
  * @since 29.09.2025, v0.1
  */
-// TODO: Handle page footers
 object ReadPdf
 {
 	// ATTRIBUTES   -----------------------
@@ -37,7 +36,12 @@ object ReadPdf
 	
 	
 	// OTHER    ---------------------------
-
+	
+	/**
+	 * Reads the (text) contents of a PDF
+	 * @param path Path to the PDF file to read
+	 * @return Pages extracted from the PDF. Failure if file-reading failed.
+	 */
 	def apply(path: Path) = {
 		PDDocument.load(path.toFile).tryConsume { doc =>
 			// Creates the extractor

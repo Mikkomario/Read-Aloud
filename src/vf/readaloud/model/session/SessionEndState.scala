@@ -1,15 +1,13 @@
 package vf.readaloud.model.session
 
-import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
-import utopia.flow.generic.model.template.ModelConvertible
-import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
 import utopia.flow.generic.casting.ValueConversions._
 import utopia.flow.generic.factory.FromModelFactory
+import utopia.flow.generic.model.immutable.{Model, ModelDeclaration}
 import utopia.flow.generic.model.mutable.DataType.{ModelType, StringType}
-import utopia.flow.parse.file.FileExtensions._
+import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
+import utopia.flow.generic.model.template.ModelConvertible
 import vf.readaloud.model.document.pdf.DocumentPosition
 
-import java.nio.file.Path
 import scala.util.Try
 
 object SessionEndState extends FromModelFactory[SessionEndState]
@@ -33,7 +31,7 @@ object SessionEndState extends FromModelFactory[SessionEndState]
  * @author Mikko Hilpinen
  * @since 01.10.2025, v0.1
  */
-case class SessionEndState(documentDirectory: Path, position: DocumentPosition) extends ModelConvertible
+case class SessionEndState(documentId: String, position: DocumentPosition) extends ModelConvertible
 {
-	override def toModel: Model = Model.from("document" -> documentDirectory.toJson, "position" -> position)
+	override def toModel: Model = Model.from("document" -> documentId, "position" -> position)
 }
