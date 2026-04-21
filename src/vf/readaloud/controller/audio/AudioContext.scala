@@ -1,7 +1,7 @@
 package vf.readaloud.controller.audio
 
 import utopia.flow.async.process.Breakable
-import utopia.flow.util.TryExtensions._
+import utopia.flow.util.result.TryExtensions._
 import utopia.flow.view.mutable.async.Volatile
 import vf.readaloud.model.audio.AudioFormat
 import vf.readaloud.util.Common._

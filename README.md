@@ -37,5 +37,5 @@ Download the zip file from the Releases section and unzip it somewhere.
 2. In terminal, go to the unzipped software directory and run: `java -jar Read-Aloud.jar`
 3. Use the `prepare` command to convert the PDF into audio files
 4. Use the `listen` command to start listening to the PDF
-5. Use `pause`, `continue` and `stop` commands to control the playback
+5. Use `pause`, `continue`, `stop`, `skip` and `page` commands to control the playback
 6. Close the software with `exit`

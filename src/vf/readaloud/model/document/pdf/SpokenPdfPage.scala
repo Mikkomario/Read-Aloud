@@ -5,7 +5,7 @@ import utopia.flow.generic.factory.FromModelFactory
 import utopia.flow.generic.model.immutable.Model
 import utopia.flow.generic.model.template.HasPropertiesLike.HasProperties
 import utopia.flow.generic.model.template.ModelConvertible
-import utopia.flow.util.TryExtensions._
+import utopia.flow.util.result.TryExtensions._
 import vf.readaloud.util.Common._
 
 import java.nio.file.Path

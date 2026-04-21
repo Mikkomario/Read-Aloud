@@ -9,8 +9,9 @@ import utopia.flow.generic.model.template.ModelConvertible
 import utopia.flow.parse.file.FileExtensions._
 import utopia.flow.parse.file.FileUtils
 import utopia.flow.time.Now
-import utopia.flow.util.TryCatch
-import utopia.flow.util.TryExtensions._
+import utopia.flow.util.StringExtensions._
+import utopia.flow.util.result.TryCatch
+import utopia.flow.util.result.TryExtensions._
 import vf.readaloud.model.document.pdf.SpokenPdfPage
 import vf.readaloud.util.Common._
 
@@ -143,8 +144,9 @@ case class AudioDocument(id: String, name: String, directory: Path, pdfFileName:
 		lazy val pageFactory = SpokenPdfPage.withAudioDirectory(audioDirectory)
 		(directory/"structure")
 			.iterateChildren {
-				_.filter { _.fileType == "json" }.toVector.sortBy { _.fileName }
-					.map { pageFactory.fromPath(_) }.toTryCatch
+				_.map { p => p -> p.fileName }.filter { _._2.endsWith(".json") }
+					.map { case (path, fileName) => path -> fileName.digits.toInt }.toVector.sortBy { _._2 }
+					.map { case (path, _) => pageFactory.fromPath(path) }.toTryCatch
 			}
 			.flattenCatching
 	}
